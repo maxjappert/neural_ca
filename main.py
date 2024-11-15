@@ -1,3 +1,4 @@
+import os
 import random
 
 import numpy as np
@@ -7,8 +8,9 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from torch import nn
 import torchvision.transforms as transforms
-from scipy.ndimage import maximum_filter
 import imageio
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 grid_h = 32
 grid_w = 32
@@ -25,6 +27,9 @@ sobel_x = torch.stack([sobel_x]*num_channels, dim=0)
 sobel_x = torch.stack([sobel_x]*num_channels, dim=0)
 sobel_y = torch.stack([sobel_y]*num_channels, dim=0)
 sobel_y = torch.stack([sobel_y]*num_channels, dim=0)
+
+sobel_x = sobel_x.to(device)
+sobel_y = sobel_y.to(device)
 
 
 class NeuralCA(nn.Module):
@@ -54,7 +59,7 @@ def perceive(state_grid, sobel_x=sobel_x, sobel_y=sobel_y):
 
 def stochastic_update(state_grid, ds_grid):
     # Zero out a random fraction of the updates.
-    rand_mask = (torch.rand(grid_h, grid_w) < 0.5).to(torch.float32)
+    rand_mask = (torch.rand(grid_h, grid_w) < 0.5).to(torch.float32).to(device)
     ds_grid = ds_grid * rand_mask
     return state_grid + ds_grid
 
@@ -70,28 +75,31 @@ def alive_masking(state_grid):
 
 
 # if cell has alpha > 0.1 then it is mature, whereby its neighbours with alpha <= 0.1 are growing
-init_state_grid = torch.zeros((num_channels, grid_h, grid_w))
+init_state_grid = torch.zeros((num_channels, grid_h, grid_w)).to(device)
 # set seed
 init_state_grid[3:, grid_h//2, grid_w//2] = 1
 
-net = NeuralCA()
+net = NeuralCA().to(device)
 
-optimizer = torch.optim.Adam(net.parameters(), lr=0.00002)
+optimizer = torch.optim.Adam(net.parameters(), lr=0.0001)
 
 num_epochs = 200
 
-target_rgba = transforms.ToTensor()(Image.open('image32.png').convert('RGBA'))  # Ensure it's RGBA
+target_rgba = transforms.ToTensor()(Image.open('image32.png').convert('RGBA')).to(device)  # Ensure it's RGBA
+
+os.makedirs('images', exist_ok=True)
+os.makedirs('videos', exist_ok=True)
 
 for epoch_idx in range(num_epochs):
     print(f'Epoch {epoch_idx+1}')
     state_grid = init_state_grid
     optimizer.zero_grad()
     N = random.randint(64, 96)
-    video_tensor = torch.zeros(N, 4, grid_h, grid_w)  # Example: 100 frames
+    video_tensor = torch.zeros(N, 4, grid_h, grid_w)
     for n in range(N):
         perception_grid = perceive(state_grid)
 
-        ds_grid = torch.zeros((num_channels, grid_h, grid_w))
+        ds_grid = torch.zeros((num_channels, grid_h, grid_w)).to(device)
         for i in range(grid_h):
             for j in range(grid_w):
                 perceived_cell = perception_grid[:, i, j]
@@ -108,21 +116,25 @@ for epoch_idx in range(num_epochs):
     mse.backward()
     optimizer.step()
 
+    ## TODO idea: work with a population
+    ## TODO noticed: cells tend to wander off to the side of the screen
+    ## TODO noticed: many generations get stuck on empty image local minimum... how to avoid?
+
     print(f'MSE: {mse.item()}')
 
     rgba_image = transforms.ToPILImage()(state_grid[:4, :, :])
 
     # Save the image
-    rgba_image.save(f'epoch{epoch_idx+1}.png', format='PNG')
+    rgba_image.save(f'images/epoch{epoch_idx+1}.png', format='PNG')
 
     # Create a writer object for saving the video
-    with imageio.get_writer(f'epoch{epoch_idx}.mp4', fps=12) as writer:
+    with imageio.get_writer(f'videos/epoch{epoch_idx}.mp4', fps=12) as writer:
         for frame in video_tensor:
             # Convert the RGBA frame (C, H, W) to (H, W, C)
             # rgba_image = transforms.ToPILImage()(frame)
 
             # Write the frame to the video file
-            frame = frame.detach().numpy().transpose(1, 2, 0)
+            frame = frame.detach().cpu().numpy().transpose(1, 2, 0)
             frame *= 255
             frame = frame.astype(np.uint8)
 
