@@ -35,9 +35,10 @@ sobel_y = sobel_y.to(device)
 class NeuralCA(nn.Module):
     def __init__(self):
         super(NeuralCA, self).__init__()
-        self.fc1 = nn.Linear(num_channels*3, 128)
-        self.fc2 = nn.Linear(128, 16)
-        # self.conv1 = nn.Conv2d(num_channels*3, 128, kernel_size=3, padding=1)
+        self.dropout = 0
+        self.fc1 = nn.Linear(num_channels*3, 128, bias=False)
+        self.fc2 = nn.Linear(128, 16, bias=False)
+        self.fc2.weight.data *= 0
 
     def forward(self, x):
         x = F.relu(self.fc1(x))
@@ -81,7 +82,7 @@ init_state_grid[3:, grid_h//2, grid_w//2] = 1
 
 net = NeuralCA().to(device)
 
-optimizer = torch.optim.Adam(net.parameters(), lr=0.0001)
+optimizer = torch.optim.Adam(net.parameters(), lr=0.000001)
 
 num_epochs = 200
 
@@ -108,7 +109,7 @@ for epoch_idx in range(num_epochs):
 
         state_grid = stochastic_update(state_grid, ds_grid)
         state_grid = alive_masking(state_grid)
-        state_grid = torch.clamp(state_grid, 0, 1)
+        # state_grid = torch.clamp(state_grid, 0, 1)
 
         video_tensor[n] = state_grid[:4, :, :]
 
@@ -117,8 +118,6 @@ for epoch_idx in range(num_epochs):
     optimizer.step()
 
     ## TODO idea: work with a population
-    ## TODO noticed: cells tend to wander off to the side of the screen
-    ## TODO noticed: many generations get stuck on empty image local minimum... how to avoid?
 
     print(f'MSE: {mse.item()}')
 
