@@ -9,41 +9,29 @@ from matplotlib import pyplot as plt
 from functions import create_initial_grid
 from network import NeuralCAComplete
 
+# todo: try sigmoid training or some other strategy in order to avoid exploding parameters
 
 # Create a function to generate a random RGB color
 def random_color():
     return random.randint(0, 255), random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)
-
-def rescale_rgb_up(rgb):
-    new_rgb = list(int(x*255) for x in rgb)
-
-    for i in range(len(new_rgb)):
-        if new_rgb[i] > 255:
-            new_rgb[i] = 255
-        elif new_rgb[i] < 0:
-            new_rgb[i] = 0
-
-    return tuple(new_rgb)
-
 # Function to update the entire grid with random colors
 def update_grid(grid):
     global pixel_grid, canvas
 
-    print(grid.max())
-
     with torch.no_grad():
         grid = net(grid.unsqueeze(0), 1)[-1].squeeze() # rgba
-    frame = grid[:3]
+
+    frame = grid[:3].clamp(0, 1)
 
     # plt.imshow(frame.permute(1,2,0))
     # plt.show()
 
-    for i in range(32):
-        for j in range(32):
-            update_pixel(i, j, color=rescale_rgb_up(frame[:3, i, j]))
+    for i in range(grid_h):
+        for j in range(grid_w):
+            update_pixel(i, j, color=list(int(x*255) for x in frame[:3, i, j]))
 
     # Schedule the grid to update every 500ms
-    root.after(10, lambda: update_grid(grid))
+    root.after(1, lambda: update_grid(grid))
 
 # Function to convert RGBA to hex format for Tkinter usage
 def rgba_to_hex(rgb):
@@ -64,8 +52,6 @@ def on_pixel_click(event):
 
     grid[:, row, col] = 1
 
-    print(grid.max())
-
 # Initialize Tkinter window
 root = tk.Tk()
 root.title("RGB Pixel Grid")
@@ -79,8 +65,8 @@ net = NeuralCAComplete().to(device)
 net.load_state_dict(torch.load('models/model.pth'))
 
 num_channels = 16
-grid_h = 32
-grid_w = 32
+grid_h = 128
+grid_w = 128
 
 grid = create_initial_grid(num_channels=num_channels, grid_h=grid_h, grid_w=grid_w, device=device)
 grid[3:, 16, 16] = 1
