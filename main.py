@@ -11,41 +11,13 @@ import torchvision.transforms as transforms
 import imageio
 from datetime import datetime
 
+from functions import create_initial_grid
+from network import NeuralCAComplete
+
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 grid_h = 32
 grid_w = 32
-
-# Implement the Neural Cellular Automata as a PyTorch module
-class NeuralCAComplete(nn.Module):
-    def __init__(self, state_dim=16, hidden_dim=128):
-        super(NeuralCAComplete, self).__init__()
-        self.state_dim = state_dim
-        self.update = nn.Sequential(nn.Conv2d(state_dim, 3 * state_dim, 3, padding=1, groups=state_dim, bias=False),
-                                    # perceive
-                                    nn.Conv2d(3 * state_dim, hidden_dim, 1, bias=False),  # process perceptual inputs
-                                    nn.ReLU(),  # nonlinearity
-                                    nn.Conv2d(hidden_dim, state_dim, 1, bias=False))  # output a residual update
-        self.update[-1].weight.data *= 0  # initial residual updates should be close to zero
-
-        # First conv layer will use fixed Sobel filters to perceive neighbors
-        identity = np.outer([0, 1, 0], [0, 1, 0])  # identity filter
-        dx = np.outer([1, 2, 1], [-1, 0, 1]) / 8.0  # Sobel x filter
-        kernel = np.stack([identity, dx, dx.T], axis=0)  # stack (identity, dx, dy) filters
-        kernel = np.tile(kernel, [state_dim, 1, 1])  # tile over channel dimension
-        self.update[0].weight.data[...] = torch.Tensor(kernel)[:, None, :, :]
-        self.update[0].weight.requires_grad = False
-
-    def forward(self, x, num_steps):
-        alive_mask = lambda alpha: nn.functional.max_pool2d(alpha, 3, stride=1, padding=1) > 0.1
-        frames = []
-        for i in range(num_steps):
-            alive_mask_pre = alive_mask(alpha=x[:, 3:4])
-            update_mask = torch.rand(*x.shape, device=x.device) > 0.5  # run a state update 1/2 of time
-            x = x + update_mask * self.update(x)  # state update!
-            x = x * alive_mask_pre * alive_mask(alpha=x[:, 3:4])  # a cell is either living or dead
-            frames.append(x.clone())
-        return torch.stack(frames)  # axes: [N, B, C, H, W] where N is # of steps
 
 num_channels = 16
 
@@ -53,6 +25,9 @@ num_channels = 16
 init_state_grid = torch.zeros((num_channels, grid_h, grid_w)).to(device)
 # set seed
 init_state_grid[:, grid_h//2, grid_w//2] = 1
+
+init_state_grid = create_initial_grid(num_channels, grid_h, grid_w, device=device)
+init_state_grid[3:, grid_h // 2, grid_w // 2] = 1
 
 net = NeuralCAComplete().to(device)
 
@@ -105,11 +80,12 @@ for epoch_idx in range(num_epochs):
     rgba_image = transforms.ToPILImage()(estimated_rgba)
 
     # Save the image
-    rgba_image.save(f'images/epoch{epoch_idx+1}.png', format='PNG')
 
     if epoch_idx % 1000 == 0:
+        rgba_image.save(f'images/{session_code}/epoch{epoch_idx + 1}.png', format='PNG')
+
         # Create a writer object for saving the video
-        with imageio.get_writer(f'videos/epoch{epoch_idx}.mp4', fps=12) as writer:
+        with imageio.get_writer(f'videos/{session_code}/epoch{epoch_idx}.mp4', fps=12) as writer:
             for frame in frames:
                 # Convert the RGBA frame (C, H, W) to (H, W, C)
                 # rgba_image = transforms.ToPILImage()(frame)
