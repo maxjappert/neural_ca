@@ -38,17 +38,18 @@ num_epochs = 200000
 target_rgba = transforms.ToTensor()(Image.open('image32.png').convert('RGBA')).to(device)
 target_rgba.requires_grad_()# Ensure it's RGBA
 
-os.makedirs('images', exist_ok=True)
-os.makedirs('videos', exist_ok=True)
-os.makedirs('models', exist_ok=True)
-
-
 def generate_session_code():
     # Get the current time and format it as a human-readable string
     session_code = datetime.now().strftime('%Y%m%d_%H%M%S')
     return session_code
 
 session_code = generate_session_code()
+
+os.makedirs('images', exist_ok=True)
+os.makedirs('videos', exist_ok=True)
+os.makedirs(f'videos/{session_code}', exist_ok=True)
+os.makedirs(f'images/{session_code}', exist_ok=True)
+os.makedirs('models', exist_ok=True)
 
 def normalize_grads(model):  # makes training more stable, especially early on
   for p in model.parameters():
