@@ -15,126 +15,92 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 grid_h = 32
 grid_w = 32
 
-sobel_x = torch.tensor([[-1, 0, +1],
-                        [-2, 0, +2],
-                        [-1, 0, +1]], dtype=torch.float32)
-sobel_y = sobel_x.T
+# Implement the Neural Cellular Automata as a PyTorch module
+class NeuralCAComplete(nn.Module):
+    def __init__(self, state_dim=16, hidden_dim=128):
+        super(NeuralCAComplete, self).__init__()
+        self.state_dim = state_dim
+        self.update = nn.Sequential(nn.Conv2d(state_dim, 3 * state_dim, 3, padding=1, groups=state_dim, bias=False),
+                                    # perceive
+                                    nn.Conv2d(3 * state_dim, hidden_dim, 1, bias=False),  # process perceptual inputs
+                                    nn.ReLU(),  # nonlinearity
+                                    nn.Conv2d(hidden_dim, state_dim, 1, bias=False))  # output a residual update
+        self.update[-1].weight.data *= 0  # initial residual updates should be close to zero
 
-# first four channels are rgba, the rest are hidden and learned
+        # First conv layer will use fixed Sobel filters to perceive neighbors
+        identity = np.outer([0, 1, 0], [0, 1, 0])  # identity filter
+        dx = np.outer([1, 2, 1], [-1, 0, 1]) / 8.0  # Sobel x filter
+        kernel = np.stack([identity, dx, dx.T], axis=0)  # stack (identity, dx, dy) filters
+        kernel = np.tile(kernel, [state_dim, 1, 1])  # tile over channel dimension
+        self.update[0].weight.data[...] = torch.Tensor(kernel)[:, None, :, :]
+        self.update[0].weight.requires_grad = False
+
+    def forward(self, x, num_steps):
+        alive_mask = lambda alpha: nn.functional.max_pool2d(alpha, 3, stride=1, padding=1) > 0.1
+        frames = []
+        for i in range(num_steps):
+            alive_mask_pre = alive_mask(alpha=x[:, 3:4])
+            update_mask = torch.rand(*x.shape, device=x.device) > 0.5  # run a state update 1/2 of time
+            x = x + update_mask * self.update(x)  # state update!
+            x = x * alive_mask_pre * alive_mask(alpha=x[:, 3:4])  # a cell is either living or dead
+            frames.append(x.clone())
+        return torch.stack(frames)  # axes: [N, B, C, H, W] where N is # of steps
+
 num_channels = 16
-
-sobel_x = torch.stack([sobel_x]*num_channels, dim=0)
-sobel_x = torch.stack([sobel_x]*num_channels, dim=0)
-sobel_y = torch.stack([sobel_y]*num_channels, dim=0)
-sobel_y = torch.stack([sobel_y]*num_channels, dim=0)
-
-sobel_x = sobel_x.to(device)
-sobel_y = sobel_y.to(device)
-
-
-class NeuralCA(nn.Module):
-    def __init__(self):
-        super(NeuralCA, self).__init__()
-        self.dropout = 0
-        self.fc1 = nn.Linear(num_channels*3, 128, bias=False)
-        self.fc2 = nn.Linear(128, 16, bias=False)
-        self.fc2.weight.data *= 0
-
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
-
-
-def perceive(state_grid, sobel_x=sobel_x, sobel_y=sobel_y):
-    # Convolve sobel filters with states
-    # in x, y and channel dimension.
-    grad_x = F.conv2d(state_grid, sobel_x, stride=1, padding=1)
-    grad_y = F.conv2d(state_grid, sobel_y, stride=1, padding=1)
-    # Concatenate the cell’s state channels,
-    # the gradients of channels in x and
-    # the gradient of channels in y.
-    perception_grid = torch.stack([state_grid, grad_x, grad_y]).reshape(-1, grid_h, grid_w)
-    return perception_grid
-
-
-def stochastic_update(state_grid, ds_grid):
-    # Zero out a random fraction of the updates.
-    rand_mask = (torch.rand(grid_h, grid_w) < 0.5).to(torch.float32).to(device)
-    ds_grid = ds_grid * rand_mask
-    return state_grid + ds_grid
-
-
-def alive_masking(state_grid):
-    # Take the alpha channel as the measure of “life”.
-    alpha_channel = state_grid[3, :, :]
-    alive = F.max_pool2d(alpha_channel.unsqueeze(1), kernel_size=3, stride=1, padding=1) > 0.1
-    alive = alive.squeeze().float()
-    alive_mask = torch.stack([alive]*num_channels, dim=0)
-    state_grid = state_grid * alive_mask
-    return state_grid
-
 
 # if cell has alpha > 0.1 then it is mature, whereby its neighbours with alpha <= 0.1 are growing
 init_state_grid = torch.zeros((num_channels, grid_h, grid_w)).to(device)
 # set seed
-init_state_grid[3:, grid_h//2, grid_w//2] = 1
+init_state_grid[:, grid_h//2, grid_w//2] = 1
 
-net = NeuralCA().to(device)
+net = NeuralCAComplete().to(device)
 
-optimizer = torch.optim.Adam(net.parameters(), lr=0.000001)
+optimizer = torch.optim.Adam(net.parameters(), lr=0.0001)
 
-num_epochs = 200
+num_epochs = 200000
 
-target_rgba = transforms.ToTensor()(Image.open('image32.png').convert('RGBA')).to(device)  # Ensure it's RGBA
+target_rgba = transforms.ToTensor()(Image.open('image32.png').convert('RGBA')).to(device)
+target_rgba.requires_grad_()# Ensure it's RGBA
 
 os.makedirs('images', exist_ok=True)
 os.makedirs('videos', exist_ok=True)
+
+def normalize_grads(model):  # makes training more stable, especially early on
+  for p in model.parameters():
+      p.grad = p.grad / (p.grad.norm() + 1e-8) if p.grad is not None else p.grad
 
 for epoch_idx in range(num_epochs):
     print(f'Epoch {epoch_idx+1}')
     state_grid = init_state_grid
     optimizer.zero_grad()
     N = random.randint(64, 96)
-    video_tensor = torch.zeros(N, 4, grid_h, grid_w)
-    for n in range(N):
-        perception_grid = perceive(state_grid)
 
-        ds_grid = torch.zeros((num_channels, grid_h, grid_w)).to(device)
-        for i in range(grid_h):
-            for j in range(grid_w):
-                perceived_cell = perception_grid[:, i, j]
-                ds = net(perceived_cell)
-                ds_grid[:, i, j] = ds
+    states = net(state_grid.unsqueeze(0), N)
+    frames = states[:, :, :4, :, :]
+    estimated_rgba = frames[-1].squeeze()
 
-        state_grid = stochastic_update(state_grid, ds_grid)
-        state_grid = alive_masking(state_grid)
-        # state_grid = torch.clamp(state_grid, 0, 1)
-
-        video_tensor[n] = state_grid[:4, :, :]
-
-    mse = (state_grid[:4, :, :] - target_rgba).pow(2).mean()
+    mse = (estimated_rgba - target_rgba).pow(2).mean()
     mse.backward()
+    normalize_grads(net)
     optimizer.step()
-
-    ## TODO idea: work with a population
 
     print(f'MSE: {mse.item()}')
 
-    rgba_image = transforms.ToPILImage()(state_grid[:4, :, :])
+    rgba_image = transforms.ToPILImage()(estimated_rgba)
 
     # Save the image
     rgba_image.save(f'images/epoch{epoch_idx+1}.png', format='PNG')
 
-    # Create a writer object for saving the video
-    with imageio.get_writer(f'videos/epoch{epoch_idx}.mp4', fps=12) as writer:
-        for frame in video_tensor:
-            # Convert the RGBA frame (C, H, W) to (H, W, C)
-            # rgba_image = transforms.ToPILImage()(frame)
+    if epoch_idx % 1000 == 0:
+        # Create a writer object for saving the video
+        with imageio.get_writer(f'videos/epoch{epoch_idx}.mp4', fps=12) as writer:
+            for frame in frames:
+                # Convert the RGBA frame (C, H, W) to (H, W, C)
+                # rgba_image = transforms.ToPILImage()(frame)
 
-            # Write the frame to the video file
-            frame = frame.detach().cpu().numpy().transpose(1, 2, 0)
-            frame *= 255
-            frame = frame.astype(np.uint8)
+                # Write the frame to the video file
+                frame = frame.squeeze().detach().cpu().numpy().transpose(1, 2, 0)
+                frame *= 255
+                frame = frame.astype(np.uint8)
 
-            writer.append_data(frame)
+                writer.append_data(frame)
