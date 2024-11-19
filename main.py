@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from torch import nn
 import torchvision.transforms as transforms
 import imageio
+from datetime import datetime
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -64,10 +65,21 @@ target_rgba.requires_grad_()# Ensure it's RGBA
 
 os.makedirs('images', exist_ok=True)
 os.makedirs('videos', exist_ok=True)
+os.makedirs('models', exist_ok=True)
+
+
+def generate_session_code():
+    # Get the current time and format it as a human-readable string
+    session_code = datetime.now().strftime('%Y%m%d_%H%M%S')
+    return session_code
+
+session_code = generate_session_code()
 
 def normalize_grads(model):  # makes training more stable, especially early on
   for p in model.parameters():
       p.grad = p.grad / (p.grad.norm() + 1e-8) if p.grad is not None else p.grad
+
+best_loss = float('inf')
 
 for epoch_idx in range(num_epochs):
     print(f'Epoch {epoch_idx+1}')
@@ -83,6 +95,10 @@ for epoch_idx in range(num_epochs):
     mse.backward()
     normalize_grads(net)
     optimizer.step()
+
+    if mse < best_loss:
+        best_loss = mse
+        torch.save(net.state_dict(), 'models/' + session_code + '.pth')
 
     print(f'MSE: {mse.item()}')
 
