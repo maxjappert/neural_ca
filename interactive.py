@@ -9,14 +9,12 @@ from matplotlib import pyplot as plt
 from functions import create_initial_grid
 from network import NeuralCAComplete
 
-# todo: try sigmoid training or some other strategy in order to avoid exploding parameters
-
 # Create a function to generate a random RGB color
 def random_color():
     return random.randint(0, 255), random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)
 # Function to update the entire grid with random colors
-def update_grid(grid):
-    global pixel_grid, canvas
+def update_grid():
+    global grid, canvas
 
     with torch.no_grad():
         grid = net(grid.unsqueeze(0), 1)[-1].squeeze() # rgba
@@ -31,7 +29,7 @@ def update_grid(grid):
             update_pixel(i, j, color=list(int(x*255) for x in frame[:3, i, j]))
 
     # Schedule the grid to update every 500ms
-    root.after(1, lambda: update_grid(grid))
+    root.after(1, update_grid)
 
 # Function to convert RGBA to hex format for Tkinter usage
 def rgba_to_hex(rgb):
@@ -50,7 +48,9 @@ def on_pixel_click(event):
     col = event.x // pixel_size  # Determine column
     row = event.y // pixel_size  # Determine row
 
-    grid[:, row, col] = 1
+    print('pixel clicked')
+
+    grid[3:, row, col] = 1
 
 # Initialize Tkinter window
 root = tk.Tk()
@@ -69,7 +69,7 @@ grid_h = 128
 grid_w = 128
 
 grid = create_initial_grid(num_channels=num_channels, grid_h=grid_h, grid_w=grid_w, device=device)
-grid[3:, 16, 16] = 1
+# grid[3:, 16, 16] = 1
 
 # Create a canvas widget
 canvas = Canvas(root, width=grid_size * pixel_size, height=grid_size * pixel_size, bg='white')
@@ -79,7 +79,7 @@ canvas.pack()
 canvas.bind("<Button-1>", on_pixel_click)
 
 # Start continuous update of the grid
-update_grid(grid)
+update_grid()
 
 # Start the Tkinter main loop
 root.mainloop()
