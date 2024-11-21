@@ -1,3 +1,5 @@
+import json
+
 import torch
 
 
@@ -6,3 +8,9 @@ def create_initial_grid(num_channels=16, grid_h=32, grid_w=32, device='cpu'):
     init_state_grid = torch.zeros((num_channels, grid_h, grid_w)).to(device)
     # set seed
     return init_state_grid
+
+def get_hps(session_id):
+    with open(f'hps/{session_id}.json', 'r') as f:
+        hps = json.load(f)
+
+    return hps

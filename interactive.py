@@ -6,8 +6,8 @@ import torch
 from PIL import Image, ImageTk
 from matplotlib import pyplot as plt
 
-from functions import create_initial_grid
-from network import NeuralCAComplete
+from functions import create_initial_grid, get_hps
+from network import NeuralCA
 
 # Create a function to generate a random RGB color
 def random_color():
@@ -56,15 +56,20 @@ def on_pixel_click(event):
 root = tk.Tk()
 root.title("RGB Pixel Grid")
 
+session_id = 'image32_20241121_070010'
+
+hps = get_hps(session_id)
+
 # Grid dimensions and size
-grid_size = 32
+grid_h = hps['height']
+grid_w = hps['width']
 pixel_size = 20
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-net = NeuralCAComplete().to(device)
-net.load_state_dict(torch.load('models/model.pth'))
+net = NeuralCA().to(device)
+net.load_state_dict(torch.load(f'models/{session_id}.pth'))
 
-num_channels = 16
+num_channels = hps['num_channels']
 grid_h = 128
 grid_w = 128
 
@@ -72,7 +77,7 @@ grid = create_initial_grid(num_channels=num_channels, grid_h=grid_h, grid_w=grid
 # grid[3:, 16, 16] = 1
 
 # Create a canvas widget
-canvas = Canvas(root, width=grid_size * pixel_size, height=grid_size * pixel_size, bg='white')
+canvas = Canvas(root, width=grid_w * pixel_size, height=grid_h * pixel_size, bg='white')
 canvas.pack()
 
 # Bind mouse click event on the canvas
