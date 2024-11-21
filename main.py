@@ -22,7 +22,9 @@ def train(input_image_path,
           num_epochs=20000,
           num_channels=16,
           hidden_dim=128,
-          weight_decay=0):
+          weight_decay=0,
+          verbose=True,
+          session_code=None):
 
     target_rgba = transforms.ToTensor()(Image.open(input_image_path).convert('RGBA')).to(device)
     target_rgba.requires_grad_()
@@ -65,7 +67,8 @@ def train(input_image_path,
         name = input_image_path.split('/')[-1].split('.')[0]
         return name + '_' + session_code
 
-    session_code = generate_session_code()
+    if session_code is not None:
+        session_code = generate_session_code()
 
     export_hyperparameters(session_code)
 

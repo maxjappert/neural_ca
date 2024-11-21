@@ -56,7 +56,7 @@ def on_pixel_click(event):
 root = tk.Tk()
 root.title("RGB Pixel Grid")
 
-session_id = 'image32_20241121_070010'
+session_id = 'flower_small_20241121_071301'
 
 hps = get_hps(session_id)
 
