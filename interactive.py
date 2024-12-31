@@ -49,7 +49,7 @@ root = tk.Tk()
 root.title("Optimized RGB Pixel Grid")
 
 # Load session configuration
-session_id = 'image32newbatch'# 'image32_20241129_144314' # 'image32_20241127_120352'# 'image32_20241127_124754'
+session_id = 'cover21scheduled'# 'image32_20241129_144314' # 'image32_20241127_120352'# 'image32_20241127_124754'
 hps = get_hps(session_id)
 
 # Grid dimensions and size

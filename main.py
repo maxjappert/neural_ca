@@ -12,6 +12,8 @@ import torchvision.transforms as transforms
 import imageio
 from datetime import datetime
 
+from torch.optim.lr_scheduler import MultiStepLR
+
 from functions import create_initial_grid
 from network import NeuralCA
 
@@ -47,7 +49,10 @@ def train(input_image_path,
           min_steps=64,
           max_steps=96,
           scale_factor=1.0,
-          generate_plots=True):
+          generate_plots=True,
+          milestones=[3000, 6000, 9000],  # lr scheduler milestones
+          gamma=0.2,  # lr scheduler gamma
+          ):
 
     img = Image.open(input_image_path).convert('RGBA')
     # Get the original size
@@ -95,6 +100,7 @@ def train(input_image_path,
     net = NeuralCA(num_channels=num_channels, hidden_dim=hidden_dim).to(device)
 
     optimizer = torch.optim.Adam(net.parameters(), lr=lr, weight_decay=weight_decay)
+    scheduler = MultiStepLR(optimizer, milestones=milestones, gamma=gamma)
 
     def generate_session_code():
         # Get the current time and format it as a human-readable string
@@ -149,6 +155,7 @@ def train(input_image_path,
         loss.backward()
         normalize_grads(net)
         optimizer.step()
+        scheduler.step()
 
         pool_state_grids[sample_idxs] = batch
 
@@ -186,10 +193,10 @@ def train(input_image_path,
                 plot_mse(list(range(len(mses))), mses, save_path=os.path.join(plot_path, str(epoch_idx+1) + '.png'))
 
 
-train('image32.png',
-      lr=1e-03,# lr=0.000001,
-      session_code='image32newbatch',
+train('cover21.png',
+      lr=2e-03,# lr=0.000001,
+      session_code='cover21scheduled',
       min_steps=64,
       max_steps=96,
-      scale_factor=1,
+      scale_factor=0.05,
       generate_plots=True)
