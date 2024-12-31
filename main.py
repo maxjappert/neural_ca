@@ -17,6 +17,25 @@ from network import NeuralCA
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+
+def plot_mse(epochs, mse_values, title="MSE over Epochs", save_path=None):
+    """Plot MSE values over epochs using Matplotlib."""
+    plt.figure(figsize=(10, 6))
+    plt.plot(epochs, mse_values, marker='o', linestyle='-', color='b')
+    plt.title(title)
+    plt.xlabel("Epochs")
+    plt.ylabel("MSE (Mean Squared Error)")
+    plt.grid(True)
+    plt.tight_layout()
+
+    # Optionally save the plot
+    if save_path:
+        plt.savefig(save_path)
+        print(f"Plot saved as {save_path}")
+
+    # Display the plot
+    plt.show()
+
 def train(input_image_path,
           lr=0.0001,
           num_epochs=20000,
@@ -24,9 +43,22 @@ def train(input_image_path,
           hidden_dim=128,
           weight_decay=0,
           verbose=True,
-          session_code=None):
+          session_code=None,
+          min_steps=64,
+          max_steps=96,
+          scale_factor=1.0):
 
-    target_rgba = transforms.ToTensor()(Image.open(input_image_path).convert('RGBA')).to(device)
+    img = Image.open(input_image_path).convert('RGBA')
+    # Get the original size
+    original_width, original_height = img.size
+
+    # Calculate the new size
+    new_width = int(original_width * scale_factor)
+    new_height = int(original_height * scale_factor)
+
+    img = img.resize((new_width, new_height), Image.LANCZOS)
+    img.save('test.png')
+    target_rgba = transforms.ToTensor()(img).to(device)
     target_rgba.requires_grad_()
 
     # target_rgba has shape (rgba_channels, height, width)
@@ -67,7 +99,7 @@ def train(input_image_path,
         name = input_image_path.split('/')[-1].split('.')[0]
         return name + '_' + session_code
 
-    if session_code is not None:
+    if session_code is None:
         session_code = generate_session_code()
 
     export_hyperparameters(session_code)
@@ -83,12 +115,12 @@ def train(input_image_path,
           p.grad = p.grad / (p.grad.norm() + 1e-8) if p.grad is not None else p.grad
 
     best_loss = float('inf')
+    mses = []
 
     for epoch_idx in range(num_epochs):
-        print(f'Epoch {epoch_idx+1}')
         state_grid = init_state_grid
         optimizer.zero_grad()
-        N = random.randint(64, 96)
+        N = random.randint(min_steps, max_steps)
 
         states = net(state_grid.unsqueeze(0), N)
         frames = states[:, :, :4, :, :]
@@ -103,13 +135,16 @@ def train(input_image_path,
             best_loss = mse
             torch.save(net.state_dict(), 'models/' + session_code + '.pth')
 
-        print(f'MSE: {mse.item()}')
+        mses.append(mse.item())
 
         # Save the image
 
         if epoch_idx % 1000 == 0 and verbose:
             rgba_image = transforms.ToPILImage()(estimated_rgba)
             rgba_image.save(f'images/{session_code}/epoch{epoch_idx + 1}.png', format='PNG')
+
+            print(f'Epoch {epoch_idx + 1}')
+            print(f'MSE: {mse.item()}\n')
 
             # Create a writer object for saving the video
             with imageio.get_writer(f'videos/{session_code}/epoch{epoch_idx}.mp4', fps=12) as writer:
@@ -124,4 +159,14 @@ def train(input_image_path,
 
                     writer.append_data(frame)
 
-train('flower_small.png')
+            plot_path = f'images/{session_code}/plots'
+            os.makedirs(plot_path, exist_ok=True)
+            plot_mse(list(range(len(mses))), mses, save_path=os.path.join(plot_path, str(epoch_idx+1) + '.png'))
+
+
+train('cover21.png',
+      lr=0.00001,
+      session_code='cover21',
+      min_steps=100,
+      max_steps=150,
+      scale_factor=0.1)
