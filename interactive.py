@@ -49,7 +49,7 @@ root = tk.Tk()
 root.title("Optimized RGB Pixel Grid")
 
 # Load session configuration
-session_id = 'cover21scheduled'# 'image32_20241129_144314' # 'image32_20241127_120352'# 'image32_20241127_124754'
+session_id = 'cover21scheduledsmall'# 'image32_20241129_144314' # 'image32_20241127_120352'# 'image32_20241127_124754'
 hps = get_hps(session_id)
 
 # Grid dimensions and size
@@ -62,10 +62,10 @@ net = NeuralCA().to(device)
 net.load_state_dict(torch.load(f'models/{session_id}.pth'))
 
 num_channels = hps['num_channels']
-grid_h = 128
-grid_w = 128
+grid_h = hps['height'] #128
+grid_w = hps['width'] # 128
 
-grid = create_initial_grid(num_channels=num_channels, grid_h=grid_h, grid_w=grid_w, device=device)
+grid = create_initial_grid(num_channels=num_channels, grid_h=grid_h, grid_w=grid_w).to(device)
 
 # Create a canvas widget
 canvas = Canvas(root, width=grid_w * pixel_size, height=grid_h * pixel_size, bg='white')

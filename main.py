@@ -40,7 +40,7 @@ def plot_mse(epochs, mse_values, title="MSE over Epochs", save_path=None):
 
 def train(input_image_path,
           lr=0.0001,
-          num_epochs=20000,
+          num_epochs=100000,
           num_channels=16,
           hidden_dim=128,
           weight_decay=0,
@@ -48,21 +48,19 @@ def train(input_image_path,
           session_code=None,
           min_steps=64,
           max_steps=96,
-          scale_factor=1.0,
+          h=128,
+          w=128,
           generate_plots=True,
           milestones=[3000, 6000, 9000],  # lr scheduler milestones
           gamma=0.2,  # lr scheduler gamma
+          pool_size=1024,
+          batch_size=32,
+          save_step=1000
           ):
 
     img = Image.open(input_image_path).convert('RGBA')
-    # Get the original size
-    original_width, original_height = img.size
 
-    # Calculate the new size
-    new_width = int(original_width * scale_factor)
-    new_height = int(original_height * scale_factor)
-
-    img = img.resize((new_width, new_height), Image.LANCZOS)
+    img = img.resize((w, h), Image.LANCZOS)
     img.save('test.png')
     target_rgba = transforms.ToTensor()(img).to(device)
     target_rgba.requires_grad_()
@@ -87,15 +85,10 @@ def train(input_image_path,
         with open(f'hps/{session_code}.json', 'w') as outfile:
             json.dump(hps, outfile)
 
-    # if cell has alpha > 0.1 then it is mature, whereby its neighbours with alpha <= 0.1 are growing
-    init_state_grid = torch.zeros((num_channels, grid_h, grid_w)).to(device)
-    # set seed
-    init_state_grid[3:, grid_h//2, grid_w//2] = 1
-
-    init_state_grid = create_initial_grid(num_channels, grid_h, grid_w, device=device)
+    init_state_grid = create_initial_grid(num_channels, grid_h, grid_w)
     init_state_grid[3:, grid_h // 2, grid_w // 2] = 1
 
-    pool_state_grids = init_state_grid.unsqueeze(0).repeat(1024, 1, 1, 1)
+    pool_state_grids = init_state_grid.unsqueeze(0).repeat(pool_size, 1, 1, 1)
 
     net = NeuralCA(num_channels=num_channels, hidden_dim=hidden_dim).to(device)
 
@@ -135,8 +128,8 @@ def train(input_image_path,
             return squared_diff.mean()
 
     for epoch_idx in range(num_epochs):
-        sample_idxs = torch.randint(0, 1024, (32,))
-        batch = pool_state_grids[sample_idxs]
+        sample_idxs = torch.randint(0, pool_size, (batch_size,))
+        batch = pool_state_grids[sample_idxs].to(device)
 
         # target_rgba.unsqueeze(0).repeat(32, 1, 1, 1)
         key_values = mse(batch[:, :4, :, :], target_rgba, per_item=True)
@@ -157,7 +150,7 @@ def train(input_image_path,
         optimizer.step()
         scheduler.step()
 
-        pool_state_grids[sample_idxs] = batch
+        pool_state_grids[sample_idxs] = batch.to('cpu')
 
         if loss < best_loss:
             best_loss = loss
@@ -167,7 +160,7 @@ def train(input_image_path,
 
         # Save the image
 
-        if epoch_idx % 1000 == 0 and verbose:
+        if epoch_idx % save_step == 0 and verbose:
             rgba_image = transforms.ToPILImage()(estimated_rgbas[-1])
             rgba_image.save(f'images/{session_code}/epoch{epoch_idx + 1}.png', format='PNG')
 
@@ -193,10 +186,16 @@ def train(input_image_path,
                 plot_mse(list(range(len(mses))), mses, save_path=os.path.join(plot_path, str(epoch_idx+1) + '.png'))
 
 
-train('cover21.png',
+train('gecko.png',
       lr=2e-03,# lr=0.000001,
-      session_code='cover21scheduled',
+      session_code='gecko_l',
       min_steps=64,
       max_steps=96,
-      scale_factor=0.05,
-      generate_plots=True)
+      h=96,
+      w=96,
+      generate_plots=True,
+      pool_size=1024,
+      batch_size=8,
+      milestones=[3000, 6000, 9000],
+      gamma=0.2,
+      save_step=1000)
