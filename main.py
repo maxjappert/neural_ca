@@ -34,7 +34,7 @@ def plot_mse(epochs, mse_values, title="MSE over Epochs", save_path=None):
         print(f"Plot saved as {save_path}")
 
     # Display the plot
-    plt.show()
+    # plt.show()
 
 def train(input_image_path,
           lr=0.0001,
@@ -46,7 +46,8 @@ def train(input_image_path,
           session_code=None,
           min_steps=64,
           max_steps=96,
-          scale_factor=1.0):
+          scale_factor=1.0,
+          generate_plots=True):
 
     img = Image.open(input_image_path).convert('RGBA')
     # Get the original size
@@ -89,6 +90,8 @@ def train(input_image_path,
     init_state_grid = create_initial_grid(num_channels, grid_h, grid_w, device=device)
     init_state_grid[3:, grid_h // 2, grid_w // 2] = 1
 
+    pool_state_grids = init_state_grid.unsqueeze(0).repeat(1024, 1, 1, 1)
+
     net = NeuralCA(num_channels=num_channels, hidden_dim=hidden_dim).to(device)
 
     optimizer = torch.optim.Adam(net.parameters(), lr=lr, weight_decay=weight_decay)
@@ -117,38 +120,56 @@ def train(input_image_path,
     best_loss = float('inf')
     mses = []
 
+    def mse(estimated, target, per_item=False):
+        squared_diff = (estimated - target).pow(2)
+
+        if per_item:
+            return squared_diff.mean(dim=(1, 2, 3))
+        else:
+            return squared_diff.mean()
+
     for epoch_idx in range(num_epochs):
-        state_grid = init_state_grid
+        sample_idxs = torch.randint(0, 1024, (32,))
+        batch = pool_state_grids[sample_idxs]
+
+        # target_rgba.unsqueeze(0).repeat(32, 1, 1, 1)
+        key_values = mse(batch[:, :4, :, :], target_rgba, per_item=True)
+        sorted_indices = torch.argsort(key_values, descending=True)
+        batch = batch[sorted_indices]
+        batch[0] = init_state_grid
+
         optimizer.zero_grad()
         N = random.randint(min_steps, max_steps)
 
-        states = net(state_grid.unsqueeze(0), N)
+        states = net(batch, N).permute((1, 0, 2, 3, 4))
         frames = states[:, :, :4, :, :]
-        estimated_rgba = frames[-1].squeeze()
+        estimated_rgbas = frames[:, -1, :, :, :].squeeze()
 
-        mse = (estimated_rgba - target_rgba).pow(2).mean()
-        mse.backward()
+        loss = mse(estimated_rgbas, target_rgba)
+        loss.backward()
         normalize_grads(net)
         optimizer.step()
 
-        if mse < best_loss:
-            best_loss = mse
+        pool_state_grids[sample_idxs] = batch
+
+        if loss < best_loss:
+            best_loss = loss
             torch.save(net.state_dict(), 'models/' + session_code + '.pth')
 
-        mses.append(mse.item())
+        mses.append(loss.item())
 
         # Save the image
 
         if epoch_idx % 1000 == 0 and verbose:
-            rgba_image = transforms.ToPILImage()(estimated_rgba)
+            rgba_image = transforms.ToPILImage()(estimated_rgbas[-1])
             rgba_image.save(f'images/{session_code}/epoch{epoch_idx + 1}.png', format='PNG')
 
             print(f'Epoch {epoch_idx + 1}')
-            print(f'MSE: {mse.item()}\n')
+            print(f'MSE: {loss.item()}\n')
 
             # Create a writer object for saving the video
             with imageio.get_writer(f'videos/{session_code}/epoch{epoch_idx}.mp4', fps=12) as writer:
-                for frame in frames:
+                for frame in frames[-1]:
                     # Convert the RGBA frame (C, H, W) to (H, W, C)
                     # rgba_image = transforms.ToPILImage()(frame)
 
@@ -159,14 +180,16 @@ def train(input_image_path,
 
                     writer.append_data(frame)
 
-            plot_path = f'images/{session_code}/plots'
-            os.makedirs(plot_path, exist_ok=True)
-            plot_mse(list(range(len(mses))), mses, save_path=os.path.join(plot_path, str(epoch_idx+1) + '.png'))
+            if generate_plots:
+                plot_path = f'images/{session_code}/plots'
+                os.makedirs(plot_path, exist_ok=True)
+                plot_mse(list(range(len(mses))), mses, save_path=os.path.join(plot_path, str(epoch_idx+1) + '.png'))
 
 
-train('cover21.png',
-      lr=0.00001,
-      session_code='cover21',
-      min_steps=100,
-      max_steps=150,
-      scale_factor=0.1)
+train('image32.png',
+      lr=1e-03,# lr=0.000001,
+      session_code='image32newbatch',
+      min_steps=64,
+      max_steps=96,
+      scale_factor=1,
+      generate_plots=True)
