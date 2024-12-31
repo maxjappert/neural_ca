@@ -30,5 +30,6 @@ class NeuralCA(nn.Module):
             update_mask = torch.rand(*x.shape, device=x.device) > 0.5  # run a state update 1/2 of time
             x = x + update_mask * self.update(x)  # state update!
             x = x * alive_mask_pre * alive_mask(alpha=x[:, 3:4])  # a cell is either living or dead
+            x = x.clamp(0, 1)
             frames.append(x.clone())
         return torch.stack(frames)  # axes: [N, B, C, H, W] where N is # of steps

@@ -84,7 +84,7 @@ def train(input_image_path,
     # if cell has alpha > 0.1 then it is mature, whereby its neighbours with alpha <= 0.1 are growing
     init_state_grid = torch.zeros((num_channels, grid_h, grid_w)).to(device)
     # set seed
-    init_state_grid[:, grid_h//2, grid_w//2] = 1
+    init_state_grid[3:, grid_h//2, grid_w//2] = 1
 
     init_state_grid = create_initial_grid(num_channels, grid_h, grid_w, device=device)
     init_state_grid[3:, grid_h // 2, grid_w // 2] = 1

@@ -7,13 +7,18 @@ from matplotlib import pyplot as plt
 from functions import create_initial_grid, get_hps
 from network import NeuralCA
 
+counter = 1
+
 # Function to convert frame to a Tkinter-compatible pixel format
 def frame_to_photoimage(frame, canvas_w, canvas_h):
+    global counter
     # Convert to (H, W, 3) uint8 format
     frame_np = (frame.permute(1, 2, 0).cpu().numpy() * 255).astype("uint8")
     img = Image.fromarray(frame_np, 'RGB')
     # Scale to canvas size
     img_resized = img.resize((canvas_w, canvas_h), Image.NEAREST)
+    img_resized.save(f'frames/{counter}.png')
+    counter += 1
     return ImageTk.PhotoImage(img_resized)
 
 # Function to update the grid and display on the canvas
@@ -21,7 +26,7 @@ def update_grid():
     global grid, photo, canvas_image
 
     with torch.no_grad():
-        grid = net(grid.unsqueeze(0), 1)[-1].squeeze()  # rgba
+        grid = net(grid.unsqueeze(0), 1)[-1].squeeze()#.clamp(0, 1)  # rgba
 
     frame = grid[:3].clamp(0, 1)  # Extract RGB channels and clamp to [0, 1]
 
@@ -44,7 +49,7 @@ root = tk.Tk()
 root.title("Optimized RGB Pixel Grid")
 
 # Load session configuration
-session_id = 'image32_20241121_070617'
+session_id = 'image32_20241129_150521'# 'image32_20241129_144314' # 'image32_20241127_120352'# 'image32_20241127_124754'
 hps = get_hps(session_id)
 
 # Grid dimensions and size
